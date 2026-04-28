@@ -16,6 +16,7 @@ from .indicators import (
     # 砖型图
     calc_brick_chart,
 )
+from .plotting import plot_double_line_and_brick
 
 __all__ = [
     'load_tushare_token',
@@ -31,4 +32,6 @@ __all__ = [
     'calc_double_line',
     # 砖型图
     'calc_brick_chart',
+    # 可视化
+    'plot_double_line_and_brick',
 ]

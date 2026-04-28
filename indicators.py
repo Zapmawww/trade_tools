@@ -195,11 +195,24 @@ def _td_sma(series: pd.Series, n: int, m: int) -> pd.Series:
     """
     通达信 SMA 函数: SMA(X, N, M) = M*X/N + (N-M)*Y'/N
     递归计算，Y' 为前一期值
+    注意：跳过开头的 NaN，从第一个有效值开始（与通达信行为一致）
     """
     result = pd.Series(index=series.index, dtype=float)
-    result.iloc[0] = series.iloc[0]
-    for i in range(1, len(series)):
-        result.iloc[i] = (m * series.iloc[i] + (n - m) * result.iloc[i - 1]) / n
+    # Find first valid index
+    first_valid = series.first_valid_index()
+    if first_valid is None:
+        return result
+    idx = series.index
+    fv_pos = idx.get_loc(first_valid)
+    result.iloc[fv_pos] = series.iloc[fv_pos]
+    for i in range(fv_pos + 1, len(series)):
+        if pd.isna(series.iloc[i]):
+            continue
+        prev = result.iloc[i - 1]
+        if pd.isna(prev):
+            result.iloc[i] = series.iloc[i]  # no previous, use current
+        else:
+            result.iloc[i] = (m * series.iloc[i] + (n - m) * prev) / n
     return result
 
 
