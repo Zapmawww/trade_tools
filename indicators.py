@@ -129,6 +129,122 @@ def calc_trend_direction(df: pd.DataFrame, price_col: str = 'sh_close', period: 
 
 
 # ============================================================
+# 标准指标 — KDJ / MACD
+# ============================================================
+
+def calc_kdj(df: pd.DataFrame, period: int = 9, m1: int = 3, m2: int = 3) -> pd.DataFrame:
+    """
+    KDJ 指标
+    返回包含 k, d, j 三列的 DataFrame
+    """
+    low_min = df['low'].rolling(window=period).min()
+    high_max = df['high'].rolling(window=period).max()
+    rsv = (df['close'] - low_min) / (high_max - low_min) * 100
+
+    k = rsv.ewm(com=m1-1, adjust=False).mean()
+    d = k.ewm(com=m2-1, adjust=False).mean()
+    j = 3 * k - 2 * d
+
+    result = pd.DataFrame({'kdj_k': k, 'kdj_d': d, 'kdj_j': j})
+    return pd.concat([df, result], axis=1)
+
+
+def calc_macd(df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.DataFrame:
+    """
+    MACD 指标
+    返回包含 dif, dea, macd 三列的 DataFrame
+    """
+    ema_fast = df['close'].ewm(span=fast, adjust=False).mean()
+    ema_slow = df['close'].ewm(span=slow, adjust=False).mean()
+    dif = ema_fast - ema_slow
+    dea = dif.ewm(span=signal, adjust=False).mean()
+    macd = (dif - dea) * 2
+
+    result = pd.DataFrame({'macd_dif': dif, 'macd_dea': dea, 'macd_hist': macd})
+    return pd.concat([df, result], axis=1)
+
+
+# ============================================================
+# 双线系统 — 白线/黄线
+# ============================================================
+
+def calc_double_line(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    双线系统：
+    白线 = EMA(EMA(close, 10), 10)  — 短周期趋势
+    黄线 = (MA(14) + MA(28) + MA(57) + MA(114)) / 4  — 改良BBI，长周期多空分水岭
+    """
+    ema10 = df['close'].ewm(span=10, adjust=False).mean()
+    white_line = ema10.ewm(span=10, adjust=False).mean()
+
+    ma14 = df['close'].rolling(window=14).mean()
+    ma28 = df['close'].rolling(window=28).mean()
+    ma57 = df['close'].rolling(window=57).mean()
+    ma114 = df['close'].rolling(window=114).mean()
+    yellow_line = (ma14 + ma28 + ma57 + ma114) / 4
+
+    result = pd.DataFrame({'white_line': white_line, 'yellow_line': yellow_line})
+    return pd.concat([df, result], axis=1)
+
+
+# ============================================================
+# 砖型图指标
+# ============================================================
+
+def _td_sma(series: pd.Series, n: int, m: int) -> pd.Series:
+    """
+    通达信 SMA 函数: SMA(X, N, M) = M*X/N + (N-M)*Y'/N
+    递归计算，Y' 为前一期值
+    """
+    result = pd.Series(index=series.index, dtype=float)
+    result.iloc[0] = series.iloc[0]
+    for i in range(1, len(series)):
+        result.iloc[i] = (m * series.iloc[i] + (n - m) * result.iloc[i - 1]) / n
+    return result
+
+
+def calc_brick_chart(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    砖型图指标 — 通达信源码移植
+    原理：基于4日高低点区间的相对位置，计算多空强度差值
+    返回值:
+        brick: 指标数值 (>4 时有效，否则为0)
+        brick_signal: '红砖'(上升) / '绿砖'(下降) / '空'(无效)
+    """
+    hh4 = df['high'].rolling(window=4).max()
+    ll4 = df['low'].rolling(window=4).min()
+    range4 = hh4 - ll4
+
+    var1a = (hh4 - df['close']) / range4 * 100 - 90
+    var2a = _td_sma(var1a, 4, 1) + 100
+
+    var3a = (df['close'] - ll4) / range4 * 100
+    var4a = _td_sma(var3a, 6, 1)
+    var5a = _td_sma(var4a, 6, 1) + 100
+
+    var6a = var5a - var2a
+    brick = var6a.apply(lambda x: x - 4 if x > 4 else 0)
+
+    # 信号判断
+    brick_signal = []
+    for i in range(len(brick)):
+        if i == 0:
+            brick_signal.append('空')
+        elif brick.iloc[i] > brick.iloc[i - 1]:
+            brick_signal.append('红砖')
+        elif brick.iloc[i] < brick.iloc[i - 1]:
+            brick_signal.append('绿砖')
+        else:
+            brick_signal.append('持平')
+
+    result = pd.DataFrame({
+        'brick_value': brick,
+        'brick_signal': brick_signal
+    })
+    return pd.concat([df, result], axis=1)
+
+
+# ============================================================
 # 个股均线（单只股票）
 # ============================================================
 
